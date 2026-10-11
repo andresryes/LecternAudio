@@ -1,0 +1,24 @@
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  core-linux:
+    runs-on: ubuntu-latest
+    container: swift:6.1
+    steps:
+      - uses: actions/checkout@v4
+      - run: swift test --package-path Packages/AudibleCore
+  macos:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - run: brew install xcodegen
+      - run: xcodegen generate
+      - run: swift test --package-path Packages/AudibleCore
+      - run: xcodebuild -scheme Earmark -destination platform=macOS -derivedDataPath build build CODE_SIGNING_ALLOWED=NO | tail -20
+        shell: bash -o pipefail {0}

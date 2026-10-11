@@ -1,0 +1,25 @@
+# Squash-merges a PR once CI passes on its latest commit. No human review.
+# Uses workflow_run instead of branch-protection auto-merge so it works on any GitHub plan.
+name: Automerge
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+permissions:
+  contents: write
+  pull-requests: write
+jobs:
+  merge:
+    if: github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          pr=$(gh pr list -R "$REPO" --head "$BRANCH" --state open --json number,headRefOid,isDraft,labels \
+            --jq ".[] | select(.headRefOid == \"$SHA\" and (.isDraft | not) and ([.labels[].name] | index(\"hold\") | not)) | .number")
+          [ -z "$pr" ] && { echo "No mergeable PR for $BRANCH@$SHA"; exit 0; }
+          gh pr merge "$pr" -R "$REPO" --squash --delete-branch

@@ -1,0 +1,127 @@
+import AudibleCore
+import SwiftUI
+
+struct BookDetail: View {
+    @Environment(LibraryModel.self) private var model
+    @Environment(Player.self) private var player
+    let book: Book
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Cover(url: model.library?.artURL(for: book)).aspectRatio(1, contentMode: .fit).frame(maxWidth: 260).frame(maxWidth: .infinity)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(book.title).font(.title2.bold()).textSelection(.enabled)
+                    Text(book.author).font(.headline).foregroundStyle(.secondary)
+                }
+
+                if let url = model.library?.audioURL(for: book) {
+                    Button { player.play(book, url: url) } label: {
+                        Label("Play", systemImage: "play.fill").frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent).controlSize(.large)
+                }
+
+                Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 6) {
+                    field("Narrator", book.narratedBy)
+                    field("Length", book.durationText)
+                    field("Released", book.releaseDate?.formatted(date: .long, time: .omitted))
+                    field("Purchased", book.purchaseDate?.formatted(date: .long, time: .omitted))
+                    field("Rating", book.rating.map { "\($0.formatted(.number.precision(.fractionLength(2)))) (\(book.ratingCount ?? 0))" })
+                    field("Publisher", book.publisher)
+                    field("Genre", book.genre.replacingOccurrences(of: ":", with: " › "))
+                    field("ASIN", book.asin)
+                }
+                .font(.callout)
+
+                if !book.summary.isEmpty {
+                    Divider()
+                    Text(summary).font(.callout).textSelection(.enabled)
+                }
+
+                if book.chapters.count > 1 {
+                    Divider()
+                    DisclosureGroup("\(book.chapters.count) Chapters") {
+                        ForEach(book.chapters, id: \.startMs) { c in
+                            HStack {
+                                Text(c.title).lineLimit(1)
+                                Spacer()
+                                Text(Duration.milliseconds(c.lengthMs).formatted(.time(pattern: .hourMinuteSecond)))
+                                    .monospacedDigit().foregroundStyle(.secondary)
+                            }
+                            .font(.callout)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                if player.book?.id == book.id { player.seek(to: c.start) }
+                                else if let url = model.library?.audioURL(for: book) {
+                                    player.play(book, url: url)
+                                    player.seek(to: c.start)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(20)
+        }
+    }
+
+    /// Audible summaries are HTML; render them as attributed text, falling back to plain.
+    private var summary: AttributedString {
+        let html = "<span style=\"font-family: -apple-system; font-size: 13px\">\(book.summary)</span>"
+        if let ns = try? NSAttributedString(data: Data(html.utf8), options: [.documentType: NSAttributedString.DocumentType.html, .characterEncoding: String.Encoding.utf8.rawValue], documentAttributes: nil),
+           var a = try? AttributedString(ns, including: \.appKit) {
+            a.foregroundColor = nil
+            return a
+        }
+        return AttributedString(book.summary)
+    }
+
+    @ViewBuilder private func field(_ label: String, _ value: String?) -> some View {
+        if let value, !value.isEmpty {
+            GridRow {
+                Text(label).foregroundStyle(.secondary).gridColumnAlignment(.trailing)
+                Text(value).textSelection(.enabled)
+            }
+        }
+    }
+}
+
+struct PlayerBar: View {
+    @Environment(Player.self) private var player
+    @Environment(LibraryModel.self) private var model
+
+    var body: some View {
+        @Bindable var player = player
+        if let book = player.book {
+            HStack(spacing: 16) {
+                Cover(url: model.library?.thumbURL(for: book), thumbnail: true).frame(width: 40, height: 40)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(book.title).font(.callout.weight(.semibold)).lineLimit(1)
+                    Text(player.currentChapter?.title ?? book.author).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+                .frame(width: 220, alignment: .leading)
+
+                Button("Back 30 seconds", systemImage: "gobackward.30") { player.skip(-30) }
+                Button(player.isPlaying ? "Pause" : "Play", systemImage: player.isPlaying ? "pause.fill" : "play.fill") { player.toggle() }
+                    .font(.title2)
+                Button("Forward 30 seconds", systemImage: "goforward.30") { player.skip(30) }
+
+                Text(Duration.seconds(player.time).formatted(.time(pattern: .hourMinuteSecond))).monospacedDigit().font(.caption)
+                Slider(value: Binding(get: { player.time }, set: { player.seek(to: $0) }), in: 0...max(player.duration, 1))
+                Text(Duration.seconds(player.duration - player.time).formatted(.time(pattern: .hourMinuteSecond))).monospacedDigit().font(.caption)
+
+                Picker("Speed", selection: $player.rate) {
+                    ForEach([0.75, 1, 1.25, 1.5, 1.75, 2] as [Float], id: \.self) { Text("\($0.formatted())×").tag($0) }
+                }
+                .labelsHidden().frame(width: 70)
+            }
+            .labelStyle(.iconOnly)
+            .buttonStyle(.borderless)
+            .padding(.horizontal, 16).padding(.vertical, 10)
+            .glassEffect(.regular, in: .rect(cornerRadius: 16))
+            .padding(12)
+        }
+    }
+}

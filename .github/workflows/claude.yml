@@ -1,0 +1,41 @@
+# Agent loop: label an issue `agent` (or mention @claude) and Claude implements it and opens a PR.
+# CI then runs and Automerge squash-merges when green.
+# Setup once: run `/install-github-app` in Claude Code (installs the Claude GitHub App and the
+# CLAUDE_CODE_OAUTH_TOKEN secret). PRs pushed with the App token trigger CI; GITHUB_TOKEN pushes would not.
+name: Claude
+on:
+  issues:
+    types: [labeled]
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+jobs:
+  claude:
+    if: |
+      (github.event_name == 'issues' && github.event.label.name == 'agent') ||
+      (github.event_name != 'issues' && contains(github.event.comment.body, '@claude') && github.event.comment.user.login == github.repository_owner)
+    runs-on: macos-26
+    timeout-minutes: 60
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: brew install xcodegen
+      - uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            ${{ github.event_name == 'issues' && format('Implement issue #{0}: {1}', github.event.issue.number, github.event.issue.title) || '' }}
+            Follow CLAUDE.md. Work on a new branch `agent/<issue-number>-<slug>`, keep the change focused,
+            run the verification commands from CLAUDE.md until they pass, then push and open a PR whose title is a
+            Conventional Commit and whose body says `Closes #<issue-number>`. Do not wait for review; CI merges it.
+          claude_args: |
+            --max-turns 80
+            --allowedTools "Edit,Write,Read,Glob,Grep,Bash(git:*),Bash(gh:*),Bash(swift:*),Bash(xcodebuild:*),Bash(xcodegen:*),Bash(open:*),Bash(sleep:*),Bash(pkill:*)"
