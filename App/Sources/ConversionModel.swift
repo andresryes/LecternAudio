@@ -15,6 +15,9 @@ final class ConversionModel {
     private let converter = AAXConverter()
     private var task: Task<Void, Never>?
     private(set) var usesAccountKey = false
+    /// Called with the outcome when a conversion ends, so `LibraryModel` can run a whole library's
+    /// worth of AAX files one after another (Controls ▸ Convert All to M4B). Cleared when it stops.
+    @ObservationIgnored var onFinish: ((Bool) -> Void)?
 
     var ffmpegURL: URL? {
         Bundle.main.executableURL?.deletingLastPathComponent().deletingLastPathComponent()
@@ -57,6 +60,8 @@ final class ConversionModel {
                 isRunning = false
                 task = nil
                 message = (error as? AudibleError)?.message ?? "Could not activate this account. Sign in again or retry."
+                // Activation fails for every book of this account, so a batch must stop here.
+                onFinish?(false)
             }
         }
     }
@@ -89,7 +94,8 @@ final class ConversionModel {
         }
         let request = AAXConversionRequest(input: input, output: output, book: book, cover: cover)
         task = Task { [self] in
-            defer { isRunning = false; task = nil }
+            // `succeeded` and `message` are set by the time this runs, so a batch can read the outcome.
+            defer { isRunning = false; task = nil; onFinish?(succeeded) }
             do {
                 let converted = try await converter.convert(request, activationBytes: key, ffmpeg: ffmpegURL) { [weak self] value in
                     Task { @MainActor in

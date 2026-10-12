@@ -41,6 +41,12 @@ final class LibraryModel {
     @ObservationIgnored var importedURLs: [Book.ID: URL] = [:]
     /// Running menu jobs (join, poster, import URL); File ▸ Cancel All Jobs cancels them.
     private(set) var jobCount = 0
+    /// Books Controls ▸ Download All From Audible would queue, recomputed with the library.
+    private(set) var downloadableCount = 0
+    /// Books Controls ▸ Convert All to M4B would convert, recomputed with the library.
+    private(set) var convertibleCount = 0
+    /// Books still waiting in a Convert All to M4B run.
+    private var conversionBatch: [Book] = []
     @ObservationIgnored var jobs: [UUID: Task<Void, Never>] = [:] { didSet { jobCount = jobs.count } }
     let conversion = ConversionModel()
     let downloads = DownloadModel()
@@ -71,6 +77,24 @@ final class LibraryModel {
     private func merge() {
         let local = AudibleLibrary.merge(audible: library?.books ?? [], local: downloadedLibrary?.books ?? [])
         books = AudibleLibrary.merge(audible: audibleBooks, local: local) + imported
+        recountLibraryWideJobs()
+    }
+
+    /// How much work Controls ▸ Download All From Audible and Convert All to M4B would do.
+    ///
+    /// Cached with the library rather than computed in the menu items' `disabled`: a computed
+    /// collection read on every render is what made the File menu one of the causes of the old
+    /// sidebar freeze (`docs/memory.md`).
+    private func recountLibraryWideJobs() {
+        let owned = Set(audibleBooks.map(\.asin))
+        downloadableCount = LibraryJobs.downloadable(books, owned: owned).count
+        convertibleCount = convertibleBooks(owned: owned).count
+    }
+
+    /// Convertible books whose AAX also resolves inside the library folder.
+    private func convertibleBooks(owned: Set<String>) -> [Book] {
+        guard let folder = library else { return [] }
+        return LibraryJobs.convertible(books, owned: owned).filter { folder.aaxURL(for: $0) != nil }
     }
 
     /// Signed out, the app shows only the OpenAudible folder, as before sign-in existed.
@@ -132,6 +156,34 @@ final class LibraryModel {
         if let session, session.account != nil, audibleBooks.contains(where: { $0.asin == book.asin }) {
             conversion.prepare(book, session: session, library: self)
         } else { conversion.prepare(book) }
+    }
+
+    /// Controls ▸ Convert All to M4B: converts every local AAX this account can activate, one after
+    /// another. Books whose activation bytes would have to be typed are left out, so the run never
+    /// stops waiting for input, and a failure or a cancel stops the rest.
+    func convertAll() {
+        guard let session, session.account != nil, !conversion.isRunning else { return }
+        conversionBatch = convertibleBooks(owned: Set(audibleBooks.map(\.asin)))
+        AppLog.shared.info("Convert All to M4B: \(conversionBatch.count) book(s)")
+        convertNext()
+    }
+
+    private func convertNext() {
+        guard let session, session.account != nil, !conversionBatch.isEmpty else {
+            stopConversionBatch()
+            return
+        }
+        let next = conversionBatch.removeFirst()
+        conversion.onFinish = { [weak self] succeeded in
+            guard let self else { return }
+            if succeeded { convertNext() } else { stopConversionBatch() }
+        }
+        conversion.prepare(next, session: session, library: self)
+    }
+
+    private func stopConversionBatch() {
+        conversionBatch = []
+        conversion.onFinish = nil
     }
 
     func audioURL(for book: Book) -> URL? {
@@ -238,6 +290,7 @@ final class LibraryModel {
     /// Controls ▸ Cancel All Jobs, through each job's own cancel API.
     func cancelAllJobs() {
         syncTask?.cancel()
+        stopConversionBatch()
         conversion.cancel()
         for job in downloads.jobs where [.queued, .licensing, .downloading, .converting].contains(job.state) { downloads.cancel(job.id) }
         exportTasks.values.forEach { $0.cancel() }
