@@ -4,6 +4,8 @@ import Foundation
 public enum LibraryFilter: Hashable, Sendable {
     case all, downloaded, notConverted, audibleOnly, reading, finished, pdfs
     case genre(String)
+    /// Books owned by one account, by `AudibleAccount.storageID` (issue #47).
+    case account(String)
 
     public static let fixed: [LibraryFilter] = [.all, .downloaded, .notConverted, .audibleOnly, .reading, .finished, .pdfs]
 
@@ -17,6 +19,8 @@ public enum LibraryFilter: Hashable, Sendable {
         case .finished: "Finished"
         case .pdfs: "With PDF"
         case .genre(let g): g
+        // An id, not a name: only the app knows the account's display name, and it substitutes it.
+        case .account(let id): id
         }
     }
 
@@ -30,6 +34,7 @@ public enum LibraryFilter: Hashable, Sendable {
         case .finished: b.readStatus == .finished
         case .pdfs: b.hasPDF
         case .genre(let g): b.primaryGenre == g
+        case .account(let id): b.accountIDs.contains(id)
         }
     }
 }
@@ -45,6 +50,8 @@ public struct LibraryIndex: Sendable {
     public private(set) var visible: [Book] = []
     /// Top-level genres A–Z with their book counts.
     public private(set) var genres: [(name: String, count: Int)] = []
+    /// Accounts owning at least one book, with their counts, in sign-in order (issue #47).
+    public private(set) var accounts: [(id: String, count: Int)] = []
     private var counts: [LibraryFilter: Int] = [:]
 
     public init() {}
@@ -53,12 +60,19 @@ public struct LibraryIndex: Sendable {
 
     private mutating func recount() {
         var counts = Dictionary(uniqueKeysWithValues: LibraryFilter.fixed.map { ($0, 0) })
+        // Sign-in order, which `merge(accounts:)` already put the books in; a dictionary would not keep it.
+        var owners: [String] = []
         for b in books {
             for f in LibraryFilter.fixed where f.matches(b) { counts[f, default: 0] += 1 }
             if !b.primaryGenre.isEmpty { counts[.genre(b.primaryGenre), default: 0] += 1 }
+            for id in b.accountIDs {
+                if counts[.account(id)] == nil { owners.append(id) }
+                counts[.account(id), default: 0] += 1
+            }
         }
         self.counts = counts
         genres = counts.compactMap { f, n in if case .genre(let g) = f { (g, n) } else { nil } }.sorted { $0.name < $1.name }
+        accounts = owners.map { (id: $0, count: counts[.account($0)] ?? 0) }
     }
 
     private mutating func refresh() {
