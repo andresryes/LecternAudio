@@ -152,17 +152,6 @@ private func book(_ asin: String, status: ReadStatus? = nil, title: String = "T"
     #expect(Set(index.visible.map(\.asin)) == ["B0BXXXX001", "B0BXXXX002"])
 }
 
-@Test func indexListsAccountsInSignInOrder() throws {
-    let us = try fixture("library-page1"), es = try fixture("library-account-es", "es")
-    var index = LibraryIndex()
-    index.books = AudibleLibrary.merge(accounts: [.init(id: "us", books: us), .init(id: "es", books: es)])
-    #expect(index.accounts.map(\.id) == ["us", "es"])
-    #expect(index.accounts.map(\.count) == [2, 4])
-
-    index.books = AudibleLibrary.merge(accounts: [.init(id: "es", books: es), .init(id: "us", books: us)])
-    #expect(index.accounts.map(\.id) == ["es", "us"])
-}
-
 @Test func accountsAreNotGenresAndGenresAreNotAccounts() throws {
     var index = LibraryIndex()
     var b = book("B01")
@@ -171,16 +160,8 @@ private func book(_ asin: String, status: ReadStatus? = nil, title: String = "T"
     index.books = [b]
     #expect(index.genres.map(\.name) == ["History"])
     #expect(index.genres.map(\.count) == [1])
-    #expect(index.accounts.map(\.id) == ["History"])
     #expect(index.count(.genre("History")) == 1)
     #expect(index.count(.account("History")) == 1)
-}
-
-@Test func anIndexWithNoOwnersListsNoAccounts() throws {
-    var index = LibraryIndex()
-    index.books = try fixture("library-page1")  // not merged: no owners
-    #expect(index.accounts.isEmpty)
-    #expect(index.count(.all) == 2, "everything else still counts")
 }
 
 // MARK: - The merge still composes with the local folder
@@ -196,4 +177,19 @@ private func book(_ asin: String, status: ReadStatus? = nil, title: String = "T"
     #expect(owned?.hasAudio == true, "the folder supplies the file")
     #expect(owned?.accountIDs == ["es"], "and the owner survives the second merge")
     #expect(owned?.title == "Solo en España", "Audible still supplies the metadata")
+}
+
+@Test func aFolderOnlyBookHasNoOwner() throws {
+    let us = try fixture("library-page1"), es = try fixture("library-account-es", "es")
+    let audible = AudibleLibrary.merge(accounts: [.init(id: "us", books: us), .init(id: "es", books: es)])
+    var local = book("B0LOCAL001", title: "Only on disk")
+    local.files = [BookFile(path: "books/only.m4b", type: .m4b)]
+    var index = LibraryIndex()
+    index.books = AudibleLibrary.merge(audible: audible, local: [local])
+
+    let folderOnly = index.books.first { $0.asin == "B0LOCAL001" }
+    #expect(folderOnly?.accountIDs == [], "no account owns a book that only the folder has")
+    #expect(index.count(.all) == 5)
+    #expect(index.count(.account("us")) == 2, "the counts are the Audible books' alone")
+    #expect(index.count(.account("es")) == 4)
 }
