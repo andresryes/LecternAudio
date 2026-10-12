@@ -62,6 +62,8 @@ final class LibraryModel {
 
     init() {
         Prefs.register()
+        // The limiter is created with the default, so apply the stored setting before any job runs.
+        Prefs.applyConversionLimit()
         restore()
         restoreImports()
     }

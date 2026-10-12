@@ -28,6 +28,19 @@ public enum DownloadQueue {
         [.licensing, .downloading, .converting].contains(state)
     }
 
+    /// How many downloads may run at once by default. Each job is mostly network-bound, so a few in
+    /// parallel finish a library sooner; the owner can change it in Settings (issue #18).
+    public static let defaultConcurrency = 3
+    public static let concurrencyRange = 1...10
+
+    /// The jobs to start now: queued jobs in order, up to the limit, counting those already running.
+    public static func next(_ jobs: [DownloadJob], limit: Int) -> [DownloadJob.ID] {
+        let running = jobs.count { isRunning($0.state) }
+        let free = max(0, min(max(limit, 1), concurrencyRange.upperBound) - running)
+        guard free > 0 else { return [] }
+        return jobs.filter { $0.state == .queued }.prefix(free).map(\.id)
+    }
+
     /// Whether `enqueue` may replace an existing job for the same book with a fresh `.queued` one.
     ///
     /// Retry and the other explicit actions reset a job that has finished one way or another.
