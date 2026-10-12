@@ -36,6 +36,8 @@ final class LibraryModel {
     var showChapters = false
     /// Bumped by View ▸ Focus Book List; the table takes focus when it changes.
     var focusListRequest = 0
+    /// Bumped by Edit ▸ Find (⌘F); `ContentView` moves focus to the search field (issue #6).
+    var focusSearchRequest = 0
     /// Books added with File ▸ Import, kept across launches with security-scoped bookmarks.
     var imported: [Book] = [] { didSet { merge() } }
     @ObservationIgnored var importedURLs: [Book.ID: URL] = [:]
@@ -67,6 +69,8 @@ final class LibraryModel {
 
     init() {
         Prefs.register()
+        // The limiter is created with the default, so apply the stored setting before any job runs.
+        Prefs.applyConversionLimit()
         exports.run = { [weak self] job, progress in
             guard let self else { throw CancellationError() }
             try await runExport(job, progress: progress)
@@ -136,7 +140,7 @@ final class LibraryModel {
                 audibleBooks = fetched
                 lastSync = .now
                 AppLog.shared.info("Synced \(fetched.count) books from Audible")
-                if downloads.automaticallyDownload { downloads.enqueue(books) }
+                if downloads.automaticallyDownload { downloads.enqueue(books, userInitiated: false) }
             } catch let error where error is CancellationError || Task.isCancelled {
             } catch {
                 if syncGeneration == generation { syncError = error.localizedDescription; AppLog.shared.error("Sync failed: \(error.localizedDescription)") }
