@@ -243,7 +243,7 @@ struct BookTable: NSViewRepresentable {
         private func play(row: Int) {
             guard row >= 0, row < books.count else { return }
             let book = books[row]
-            if let url = model.audioURL(for: book) { player.play(book, url: url) }
+            if let url = model.audioURL(for: book) { player.play(book, url: url) } else { NSSound.beep() }
         }
 
         /// Right-click: the same actions as the grid, hosted as an AppKit menu (no `@Environment`, see CLAUDE.md).
@@ -280,7 +280,8 @@ private final class ContextMenuTableView: NSTableView {
     private var fitted = false
 
     override func keyDown(with event: NSEvent) {
-        let plain = event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty
+        // Not .deviceIndependentFlagsMask: it includes Caps Lock, and keypad Enter always carries .numericPad.
+        let plain = event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty
         // "\r" is Return, "\u{3}" the keypad Enter. Anything else keeps the table's own handling,
         // including the arrow keys and type-select.
         if plain, let keys = event.charactersIgnoringModifiers, keys == "\r" || keys == "\u{3}", let playAction {
