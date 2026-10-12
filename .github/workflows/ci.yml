@@ -68,6 +68,8 @@ jobs:
           restore-keys: spm-xcode-
       - run: brew install xcodegen
       - run: xcodegen generate
+      # The runner's GPU can't draw the glass sidebar and inspector into an offscreen bitmap; opaque ones render.
+      - run: defaults write com.apple.universalaccess reduceTransparency -bool true && defaults read com.apple.universalaccess reduceTransparency
       - run: |
           xcodebuild -scheme LecternAudio -destination platform=macOS -derivedDataPath build test \
             CODE_SIGNING_ALLOWED=NO COMPILER_INDEX_STORE_ENABLE=NO | tail -60
