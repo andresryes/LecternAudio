@@ -46,15 +46,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: swift test --package-path Packages/AudibleCore --disable-index-store
-  # Snapshots of the main window (issue #7). The reference images in the repository were recorded on a
-  # developer machine, not on this runner, so a mismatch must not block the merge queue: re-record them
-  # here (run the job with LECTERN_RECORD_SNAPSHOTS=1, download the artifact, commit it) and then drop
-  # `continue-on-error`.
+  # Snapshots of the main window (issue #7). The references come from this runner; a local Xcode renders
+  # differently. To re-record, delete the PNGs and push: a missing reference is recorded and fails the job,
+  # so the snapshot-diffs artifact carries the new __Snapshots__ PNGs to look at and commit.
   macos-snapshots:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: macos-26
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/cache@v4
@@ -74,7 +72,7 @@ jobs:
           xcodebuild -scheme LecternAudio -destination platform=macOS -derivedDataPath build test \
             CODE_SIGNING_ALLOWED=NO COMPILER_INDEX_STORE_ENABLE=NO | tail -60
         shell: bash -o pipefail {0}
-      # The failure diff is written beside the reference as `<name>.png` plus the xcresult attachments.
+      # On a mismatch the failing image and the diff are xcresult attachments under build/Logs/Test.
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

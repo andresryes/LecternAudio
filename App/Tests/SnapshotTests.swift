@@ -5,7 +5,8 @@ import Testing
 @testable import LecternAudio
 
 /// Snapshots of the main window's states (issue #7). References are PNGs beside this file in
-/// `__Snapshots__`; record new ones with `LECTERN_RECORD_SNAPSHOTS=1`.
+/// `__Snapshots__`, recorded on the CI runner (see ci.yml); `TEST_RUNNER_LECTERN_RECORD_SNAPSHOTS=1` on the
+/// xcodebuild command line records new ones.
 ///
 /// These run in the host app's own defaults domain, so every test puts back what it changes: a test
 /// run must not leave the owner's library folder or view mode different from how they left it.
@@ -18,7 +19,9 @@ struct SnapshotTests {
 
     @Test func libraryTable() throws {
         try withFixture { model in
-            assert(ContentView().environment(model), named: "table")
+            withViewMode(grid: false) {
+                assert(ContentView().environment(model), named: "table")
+            }
         }
     }
 
@@ -34,13 +37,16 @@ struct SnapshotTests {
         try withFixture { model in
             model.selection = [model.books.first!.id]
             model.showInspector = true
-            assert(ContentView().environment(model), named: "inspector")
+            withViewMode(grid: false) {
+                assert(ContentView().environment(model), named: "inspector")
+            }
         }
     }
 
     @Test func emptyOnboarding() {
         // Not `LibraryModel()`: that restores whatever library this machine last opened, because the
         // test host shares the app's defaults domain.
+        #expect(Harness.testHost, "the host app is inert: no restore, no Keychain, no Sparkle")
         let model = LibraryModel(restoring: false)
         #expect(model.books.isEmpty, "no library folder is open")
         assert(ContentView().environment(model), named: "onboarding")
@@ -52,9 +58,12 @@ struct SnapshotTests {
                         _ location: SourceLocation = #_sourceLocation) {
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: Self.size),
                               styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+        // A fixed light appearance: the app's appearance setting and the machine's dark mode don't apply.
+        window.appearance = NSAppearance(named: .aqua)
         let host = NSHostingView(rootView: view
             .environment(Player())
-            .environment(AudibleSession())
+            .environment(AudibleSession(loadKeychain: false))
+            .environment(\.colorScheme, .light)
             .frame(width: Self.size.width, height: Self.size.height))
         window.contentView = host
         host.layoutSubtreeIfNeeded()
@@ -79,7 +88,7 @@ struct SnapshotTests {
         defer { try? FileManager.default.removeItem(at: folder) }
         try Data(Self.booksJSON.utf8).write(to: folder.appendingPathComponent("books.json"))
 
-        let model = LibraryModel()
+        let model = LibraryModel(restoring: false)
         model.open(folder, remember: false)
         #expect(model.books.count == 3, "the fixture folder loaded")
         try body(model)
