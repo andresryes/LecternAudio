@@ -9,8 +9,9 @@ struct ConversionView: View {
         VStack(alignment: .leading, spacing: 18) {
             Text("Convert to M4B").font(.title2.bold())
             Text(conversion.book?.title ?? "").font(.headline)
-            Text(deleteAAX
-                 ? "Keep the original audio quality, chapters and cover. Your AAX file is deleted once the M4B is saved."
+            // Matches ConversionModel.start: only account conversions move the AAX to the Trash.
+            Text(deleteAAX && conversion.usesAccountKey
+                 ? "Keep the original audio quality, chapters and cover. The AAX file, downloaded by OpenAudible, goes to the Trash once the M4B is saved and its length checked. OpenAudible will show it as missing."
                  : "Keep the original audio quality, chapters and cover. Your AAX file is kept.")
                 .foregroundStyle(.secondary)
             if !conversion.isRunning && !conversion.succeeded && !conversion.usesAccountKey {

@@ -14,7 +14,7 @@ enum Prefs {
     static let autoSyncHours = "autoSyncHours"
     static let showProgress = "showProgress"
     static let autoConvert = "autoConvert"
-    /// Deletes the owner's own AAX file after converting it, so it defaults off.
+    /// Moves the AAX file (downloaded by OpenAudible) to the Trash after a verified conversion, so it defaults off.
     static let deleteAAXAfterConversion = "deleteAAXAfterConversion"
     static let language = "language"  // "" follows the system
     static let appearance = "appearance"  // "system", "light", "dark"
@@ -173,8 +173,8 @@ private struct GeneralSettings: View {
                 Toggle("Refresh library on launch", isOn: $refreshOnLaunch)
                 Toggle("Show progress automatically when downloads start", isOn: $showProgress)
                 Toggle("Automatically convert AAX files after syncing", isOn: $autoConvert)
-                Toggle("Delete AAX files after converting them", isOn: $deleteAAX)
-                Text("Deleting an AAX file keeps the converted M4B, but leaves nothing to convert again.")
+                Toggle("Move AAX files to the Trash after converting them", isOn: $deleteAAX)
+                Text("Moves AAX files that OpenAudible downloaded to the Trash after a verified conversion, for books in your Audible account. OpenAudible will show them as missing.")
                     .font(.callout).foregroundStyle(.secondary)
                 Toggle(isOn: $autoSync) {
                     Stepper("Sync with Audible every \(autoSyncHours) hours", value: $autoSyncHours, in: 1...168)
