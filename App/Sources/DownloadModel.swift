@@ -21,7 +21,9 @@ final class DownloadModel {
     private var generation = UUID()
     private var queueIsReadable = true
     /// Set when the network turned out to be unreachable: the queue holds where it is (issue #31).
-    private var waitingForConnection = false
+    /// Cleared by any enqueue (an explicit action, or the automatic one after a successful sync) and
+    /// by a completed job, since both prove the network works again.
+    private(set) var waitingForConnection = false
 
     var pendingCount: Int { jobs.count { $0.state == .queued || DownloadQueue.isRunning($0.state) } }
     /// Jobs actually in flight, so the window can open the Downloads sheet when work starts.
@@ -67,8 +69,8 @@ final class DownloadModel {
             } else { jobs.append(DownloadJob(book: book)) }
         }
         guard persist() else { return }
-        // An explicit action is also the way out of a connection hold.
-        if userInitiated { waitingForConnection = false }
+        // An explicit action, or the automatic enqueue after a successful sync, ends a connection hold.
+        waitingForConnection = false
         advance()
     }
 
@@ -132,7 +134,7 @@ final class DownloadModel {
                 if generation == token {
                     tasks[job.id] = nil
                     progress[job.id] = nil
-                    if !waitingForConnection { advance() }
+                    advance()
                 }
             }
             do {
@@ -146,6 +148,7 @@ final class DownloadModel {
                     guard generation == token else { throw CancellationError() }
                     try library.recordDownload(job.book, output: output, root: root)
                     update(job.id, .complete)
+                    waitingForConnection = false
                     removeSources(for: job.book.asin, in: root)
                     return
                 }
@@ -227,6 +230,7 @@ final class DownloadModel {
                     throw error
                 }
                 update(job.id, .complete)
+                waitingForConnection = false
                 removeSources(for: job.book.asin, in: root)
                 Prefs.playCompletionSound()
             } catch {
