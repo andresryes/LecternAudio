@@ -34,7 +34,7 @@ enum Prefs {
         UserDefaults.standard.register(defaults: [
             outputFormat: "m4b", mp3Bitrate: 320, oggQuality: 10, refreshOnLaunch: true, autoSync: true, autoSyncHours: 24,
             appearance: "system", tableFontSize: "medium",
-            maxDownloads: DownloadQueue.defaultConcurrency, maxConversions: DownloadQueue.defaultConcurrency,
+            maxDownloads: DownloadQueue.defaultDownloads, maxConversions: DownloadQueue.defaultConversions,
             aria2Connections: 16, aria2Split: 16, aria2MinSplitMiB: 1, aria2MaxSpeedMBps: 0,
         ])
     }
@@ -87,7 +87,7 @@ enum Prefs {
     /// One limiter for every FFmpeg conversion in the app. Download jobs convert inside the job, so
     /// without a shared limit the conversion setting could only ever be as coarse as the download
     /// setting (issue #18).
-    static let conversions = ConcurrencyLimiter(limit: DownloadQueue.defaultConcurrency)
+    static let conversions = ConcurrencyLimiter(limit: DownloadQueue.defaultConversions)
 
     static func applyConversionLimit() {
         let limit = UserDefaults.standard.integer(forKey: maxConversions)
@@ -224,9 +224,10 @@ private struct GeneralSettings: View {
 }
 
 private struct AdvancedSettings: View {
+    @Environment(LibraryModel.self) private var library
     @AppStorage(Prefs.externalPlayer) private var externalPlayer = false
-    @AppStorage(Prefs.maxDownloads) private var maxDownloads = DownloadQueue.defaultConcurrency
-    @AppStorage(Prefs.maxConversions) private var maxConversions = DownloadQueue.defaultConcurrency
+    @AppStorage(Prefs.maxDownloads) private var maxDownloads = DownloadQueue.defaultDownloads
+    @AppStorage(Prefs.maxConversions) private var maxConversions = DownloadQueue.defaultConversions
     @AppStorage(Prefs.aria2) private var aria2 = false
     @AppStorage(Prefs.aria2Connections) private var connections = 16
     @AppStorage(Prefs.aria2Split) private var split = 16
@@ -243,9 +244,10 @@ private struct AdvancedSettings: View {
             }
             Section("Concurrent Jobs") {
                 Stepper("Simultaneous downloads: \(maxDownloads)", value: $maxDownloads, in: DownloadQueue.concurrencyRange)
+                    .onChange(of: maxDownloads) { library.downloads.advance() }
                 Stepper("Simultaneous conversions: \(maxConversions)", value: $maxConversions, in: DownloadQueue.concurrencyRange)
                     .onChange(of: maxConversions) { Prefs.applyConversionLimit() }
-                Text("Downloads are mostly waiting on the network, conversions on the processor. A download that is ready to convert waits for a conversion slot, so setting conversions far below downloads leaves downloads idle.")
+                Text("Downloads mostly wait on the network. Conversions copy the audio stream, so they mostly wait on the disk. A download that is ready to convert waits for a conversion slot, so setting conversions far below downloads leaves downloads idle.")
                     .font(.callout).foregroundStyle(.secondary)
             }
             Section("Downloads") {

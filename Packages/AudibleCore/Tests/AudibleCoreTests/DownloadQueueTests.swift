@@ -110,6 +110,16 @@ private func job(_ asin: String = "B0000001", state: DownloadJob.State) -> Downl
             "above the range is capped, never unbounded")
 }
 
+@Test func aJobWithALiveTaskKeepsItsSlotAndIsNotStartedTwice() {
+    // Cancel then Retry: the job is queued again while its old task is still unwinding.
+    let jobs = [job("B01", state: .queued), job("B02", state: .queued)]
+    #expect(DownloadQueue.next(jobs, live: [jobs[0].id], limit: 1).isEmpty, "the unwinding task holds the only slot")
+    #expect(DownloadQueue.next(jobs, live: [jobs[0].id], limit: 2) == [jobs[1].id], "never a second task for B01")
+    // A cancelled job whose task is unwinding still counts.
+    let cancelled = [job("B01", state: .cancelled), job("B02", state: .queued)]
+    #expect(DownloadQueue.next(cancelled, live: [cancelled[0].id], limit: 1).isEmpty)
+}
+
 @Test func nothingQueuedStartsNoDownloads() {
     #expect(DownloadQueue.next([], limit: 3).isEmpty)
     #expect(DownloadQueue.next([job("B01", state: .complete)], limit: 3).isEmpty)

@@ -26,8 +26,9 @@ final class DownloadModel {
     private(set) var waitingForConnection = false
 
     var pendingCount: Int { jobs.count { $0.state == .queued || DownloadQueue.isRunning($0.state) } }
-    /// Jobs actually in flight, so the window can open the Downloads sheet when work starts.
-    var activeCount: Int { jobs.count { DownloadQueue.isRunning($0.state) } }
+    /// Tasks in flight, so the window can open the Downloads sheet when work starts. Stored rather
+    /// than computed from `jobs`, so ContentView isn't invalidated by every job state change.
+    private(set) var activeCount = 0
 
     func configure(session: AudibleSession, library: LibraryModel, root: URL?) {
         let next = session.account?.storageID
@@ -35,6 +36,7 @@ final class DownloadModel {
         generation = UUID()
         for task in tasks.values { task.cancel() }
         tasks = [:]
+        activeCount = 0
         progress = [:]
         identity = next
         self.root = root
@@ -116,9 +118,10 @@ final class DownloadModel {
     }
 
     /// Starts as many queued jobs as Settings allows, counting those already in flight (issue #18).
-    private func advance() {
+    /// Also called when the limit changes in Settings, so a raised limit applies at once.
+    func advance() {
         guard let root, let session, let library, !waitingForConnection else { return }
-        for id in DownloadQueue.next(jobs, limit: Prefs.downloadConcurrency) {
+        for id in DownloadQueue.next(jobs, live: Set(tasks.keys), limit: Prefs.downloadConcurrency) {
             guard let job = jobs.first(where: { $0.id == id }) else { continue }
             start(job, root: root, session: session, library: library)
         }
@@ -133,6 +136,7 @@ final class DownloadModel {
             defer {
                 if generation == token {
                     tasks[job.id] = nil
+                    activeCount = tasks.count
                     progress[job.id] = nil
                     advance()
                 }
@@ -250,5 +254,6 @@ final class DownloadModel {
                 }
             }
         }
+        activeCount = tasks.count
     }
 }
