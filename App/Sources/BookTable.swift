@@ -29,6 +29,10 @@ struct BookTable: NSViewRepresentable {
         table.delegate = coordinator
         table.target = coordinator
         table.doubleAction = #selector(Coordinator.doubleClicked)
+        table.playAction = { [weak coordinator, weak table] in
+            guard let coordinator, let table else { return }
+            coordinator.playSelection(in: table)
+        }
         table.style = .inset
         table.usesAlternatingRowBackgroundColors = true
         table.allowsMultipleSelection = true
@@ -228,8 +232,17 @@ struct BookTable: NSViewRepresentable {
         }
 
         @objc func doubleClicked(_ sender: NSTableView) {
-            guard sender.clickedRow >= 0, sender.clickedRow < books.count else { return }
-            let book = books[sender.clickedRow]
+            play(row: sender.clickedRow)
+        }
+
+        /// Return or Enter: the first selected row, so it matches what the table highlights.
+        func playSelection(in table: NSTableView) {
+            play(row: table.selectedRowIndexes.first ?? -1)
+        }
+
+        private func play(row: Int) {
+            guard row >= 0, row < books.count else { return }
+            let book = books[row]
             if let url = model.audioURL(for: book) { player.play(book, url: url) }
         }
 
@@ -262,7 +275,20 @@ struct BookTable: NSViewRepresentable {
 /// columns to the window once it has a width (like SwiftUI's Table; later resizes follow the autoresizing style).
 private final class ContextMenuTableView: NSTableView {
     var menuProvider: ((Int) -> NSMenu?)?
+    /// Return or Enter on the selection, the keyboard equivalent of a double click (issue #6).
+    var playAction: (() -> Void)?
     private var fitted = false
+
+    override func keyDown(with event: NSEvent) {
+        let plain = event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty
+        // "\r" is Return, "\u{3}" the keypad Enter. Anything else keeps the table's own handling,
+        // including the arrow keys and type-select.
+        if plain, let keys = event.charactersIgnoringModifiers, keys == "\r" || keys == "\u{3}", let playAction {
+            playAction()
+            return
+        }
+        super.keyDown(with: event)
+    }
 
     override func layout() {
         super.layout()
