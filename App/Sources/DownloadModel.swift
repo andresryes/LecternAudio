@@ -5,8 +5,8 @@ import Observation
 @Observable
 final class DownloadModel {
     private(set) var jobs: [DownloadJob] = []
-    private(set) var progress: Double?
-    private(set) var activeID: String?
+    /// Progress of each job in flight, keyed by job id; absent until the first byte arrives.
+    private(set) var progress: [String: Double] = [:]
     var error: String?
     var automaticallyDownload = false {
         didSet {
@@ -15,22 +15,29 @@ final class DownloadModel {
     }
     private var identity: String?
     private var root: URL?
-    private var task: Task<Void, Never>?
+    @ObservationIgnored private var tasks: [String: Task<Void, Never>] = [:]
     private weak var session: AudibleSession?
     private weak var library: LibraryModel?
     private var generation = UUID()
     private var queueIsReadable = true
+    /// Set when the network turned out to be unreachable: the queue holds where it is (issue #31).
+    /// Cleared by any enqueue (an explicit action, or the automatic one after a successful sync) and
+    /// by a completed job, since both prove the network works again.
+    private(set) var waitingForConnection = false
 
-    var pendingCount: Int { jobs.filter { [.queued, .licensing, .downloading, .converting].contains($0.state) }.count }
+    var pendingCount: Int { jobs.count { $0.state == .queued || DownloadQueue.isRunning($0.state) } }
+    /// Tasks in flight, so the window can open the Downloads sheet when work starts. Stored rather
+    /// than computed from `jobs`, so ContentView isn't invalidated by every job state change.
+    private(set) var activeCount = 0
 
     func configure(session: AudibleSession, library: LibraryModel, root: URL?) {
         let next = session.account?.storageID
         guard identity != next || self.library == nil else { return }
         generation = UUID()
-        task?.cancel()
-        task = nil
-        activeID = nil
-        progress = nil
+        for task in tasks.values { task.cancel() }
+        tasks = [:]
+        activeCount = 0
+        progress = [:]
         identity = next
         self.root = root
         self.session = session
@@ -38,6 +45,7 @@ final class DownloadModel {
         jobs = []
         error = nil
         queueIsReadable = true
+        waitingForConnection = false
         if let root, FileManager.default.fileExists(atPath: root.appendingPathComponent("queue.json").path) {
             do {
                 jobs = try DownloadJob.restore(from: Data(contentsOf: root.appendingPathComponent("queue.json")))
@@ -48,25 +56,31 @@ final class DownloadModel {
             }
         }
         automaticallyDownload = next.map { UserDefaults.standard.bool(forKey: "autoDownload.\($0)") } ?? false
-        runNext()
+        advance()
     }
 
-    func enqueue(_ books: [Book]) {
+    /// `userInitiated` is false only for the automatic download after a sync, which must not revive a
+    /// book the owner cancelled or one that failed; only an explicit action resets those (issue #31).
+    func enqueue(_ books: [Book], userInitiated: Bool = true) {
         guard identity != nil, queueIsReadable else { return }
         for book in books where !book.hasAudio && AudibleContent.validASIN(book.asin) && library?.canDownload(book) == true {
             if let index = jobs.firstIndex(where: { $0.id == book.id }) {
-                if [.failed, .cancelled, .complete].contains(jobs[index].state) { jobs[index] = DownloadJob(book: book) }
+                if DownloadQueue.shouldReplace(existing: jobs[index].state, userInitiated: userInitiated) {
+                    jobs[index] = DownloadJob(book: book)
+                }
             } else { jobs.append(DownloadJob(book: book)) }
         }
         guard persist() else { return }
-        runNext()
+        // An explicit action, or the automatic enqueue after a successful sync, ends a connection hold.
+        waitingForConnection = false
+        advance()
     }
 
     func cancel(_ id: String) {
         guard let index = jobs.firstIndex(where: { $0.id == id }) else { return }
         jobs[index].state = .cancelled
         jobs[index].message = "Cancelled. Downloaded data is kept for retry."
-        if activeID == id { task?.cancel() }
+        tasks[id]?.cancel()
         _ = persist()
     }
 
@@ -90,21 +104,41 @@ final class DownloadModel {
         }
     }
 
-    private func runNext() {
-        guard task == nil, let root, let session, let library,
-              let job = jobs.first(where: { $0.state == .queued }) else { return }
+    /// Deletes the encrypted sources for `asin`. They are re-downloadable, useless without a fresh
+    /// license, and each is about the size of the finished book, so keeping them cost roughly twice the
+    /// disk of the library (issue #31). Only called once the converted M4B has been recorded, so a
+    /// failed or cancelled job keeps its partial download for Retry.
+    private func removeSources(for asin: String, in root: URL) {
+        let manager = FileManager.default
+        let folder = root.appendingPathComponent("sources")
+        guard let names = try? manager.contentsOfDirectory(atPath: folder.path) else { return }
+        for name in DownloadQueue.sources(for: asin, in: names) {
+            try? manager.removeItem(at: folder.appendingPathComponent(name))
+        }
+    }
+
+    /// Starts as many queued jobs as Settings allows, counting those already in flight (issue #18).
+    /// Also called when the limit changes in Settings, so a raised limit applies at once.
+    func advance() {
+        guard let root, let session, let library, !waitingForConnection else { return }
+        for id in DownloadQueue.next(jobs, live: Set(tasks.keys), limit: Prefs.downloadConcurrency) {
+            guard let job = jobs.first(where: { $0.id == id }) else { continue }
+            start(job, root: root, session: session, library: library)
+        }
+    }
+
+    private func start(_ job: DownloadJob, root: URL, session: AudibleSession, library: LibraryModel) {
         let token = generation
         let converter = AAXConverter()
-        activeID = job.id
-        progress = nil
+        progress[job.id] = nil
         update(job.id, .licensing)
-        task = Task {
+        tasks[job.id] = Task {
             defer {
                 if generation == token {
-                    task = nil
-                    activeID = nil
-                    progress = nil
-                    runNext()
+                    tasks[job.id] = nil
+                    activeCount = tasks.count
+                    progress[job.id] = nil
+                    advance()
                 }
             }
             do {
@@ -113,11 +147,13 @@ final class DownloadModel {
                 let output = root.appendingPathComponent("books/\(job.book.asin).m4b")
                 guard let helper = library.conversion.ffmpegURL else { throw ConversionError.ffmpegUnavailable }
                 if FileManager.default.fileExists(atPath: output.path) {
-                    try await converter.validate(output, ffmpeg: helper)
+                    try await Prefs.conversions.run { try await converter.validate(output, ffmpeg: helper) }
                     try Task.checkCancellation()
                     guard generation == token else { throw CancellationError() }
                     try library.recordDownload(job.book, output: output, root: root)
                     update(job.id, .complete)
+                    waitingForConnection = false
+                    removeSources(for: job.book.asin, in: root)
                     return
                 }
                 let (data, response) = try await AudibleHTTP.data(for: AudibleContent.licenseRequest(asin: job.book.asin, account: account))
@@ -141,8 +177,8 @@ final class DownloadModel {
                             try await transport.download(for: request)
                         }, accelerator: accelerator) { value in
                             Task { @MainActor in
-                                if self.generation == token, self.activeID == job.id,
-                                   self.jobs.first(where: { $0.id == job.id })?.state == .downloading { self.progress = value }
+                                if self.generation == token,
+                                   self.jobs.first(where: { $0.id == job.id })?.state == .downloading { self.progress[job.id] = value }
                             }
                         }
                         break
@@ -175,12 +211,18 @@ final class DownloadModel {
                 }
                 try Task.checkCancellation()
                 update(job.id, .converting)
-                progress = 0
-                let result = try await converter.convert(.init(input: downloaded, output: output, book: book, cover: cover),
-                                                         credentials: license.credentials, ffmpeg: helper) { value in
-                    Task { @MainActor in
-                        if self.generation == token, self.activeID == job.id,
-                           self.jobs.first(where: { $0.id == job.id })?.state == .converting { self.progress = value }
+                progress[job.id] = 0
+                // Conversions are processor-bound and shared with manual conversions, so they go
+                // through one limiter rather than running once per download slot (issue #18).
+                // Immutable copies: the limiter's body is @Sendable and cannot capture the vars above.
+                let converting = book, artwork = cover
+                let result = try await Prefs.conversions.run {
+                    try await converter.convert(.init(input: downloaded, output: output, book: converting, cover: artwork),
+                                                credentials: license.credentials, ffmpeg: helper) { value in
+                        Task { @MainActor in
+                            if self.generation == token,
+                               self.jobs.first(where: { $0.id == job.id })?.state == .converting { self.progress[job.id] = value }
+                        }
                     }
                 }
                 do {
@@ -192,16 +234,26 @@ final class DownloadModel {
                     throw error
                 }
                 update(job.id, .complete)
+                waitingForConnection = false
+                removeSources(for: job.book.asin, in: root)
                 Prefs.playCompletionSound()
             } catch {
-                guard generation == token else { return }
-                if Task.isCancelled || error is CancellationError { update(job.id, .cancelled, message: "Cancelled. Retry to resume.") }
-                else {
+                // `cancel` has already recorded `.cancelled` and Retry has already queued a fresh job;
+                // whichever landed while this task unwound keeps its state (issue #31).
+                guard generation == token, let current = jobs.first(where: { $0.id == job.id })?.state,
+                      DownloadQueue.isRunning(current) else { return }
+                if Task.isCancelled || error is CancellationError {
+                    update(job.id, .cancelled, message: "Cancelled. Retry to resume.")
+                } else if DownloadQueue.isOffline(error) {
+                    waitingForConnection = true
+                    update(job.id, .queued, message: "Waiting for a connection. Retry once you are back online.")
+                } else {
                     let message = (error as? AudibleError)?.message ?? (error as? ConversionError)?.errorDescription
                         ?? "Download failed. Check your connection and disk space, then retry."
                     update(job.id, .failed, message: message)
                 }
             }
         }
+        activeCount = tasks.count
     }
 }

@@ -46,7 +46,7 @@ struct LecternAudioApp: App {
         .restorationBehavior(.disabled)
 
         Settings {
-            SettingsView(updater: updater).environment(session)
+            SettingsView(updater: updater).environment(session).environment(library)
         }
     }
 }

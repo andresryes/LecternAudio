@@ -26,6 +26,10 @@ struct AppCommands: Commands {
             }
             .disabled(!library.books.contains { library.selection.contains($0.id) && library.canDownload($0) })
         }
+        CommandGroup(after: .textEditing) {
+            Button("Find") { library.focusSearchRequest += 1 }
+                .keyboardShortcut("f")
+        }
         PlayerCommands(library: library, player: player)
         ViewCommands(library: library)
         HelpCommands(library: library, session: session, updater: updater)
@@ -102,6 +106,11 @@ private struct ControlsCommands: Commands {
                 .disabled(session.account == nil || library.isSyncing)
             Button("Full Library Sync") { sync("Full sync") }
                 .disabled(session.account == nil || library.isSyncing)
+            Divider()
+            Button("Download All From Audible…") { library.downloadAll() }
+                .disabled(session.account == nil || library.downloadableCount == 0)
+            Button("Convert All to M4B…") { library.convertAll() }
+                .disabled(session.account == nil || library.convertibleCount == 0 || library.conversion.isRunning)
             Divider()
             Button("Refresh Files") { library.refreshFiles() }
                 .keyboardShortcut(functionKey(NSF5FunctionKey), modifiers: [])
@@ -227,6 +236,8 @@ private struct ViewCommands: Commands {
             Button("Decrease Font Size") { step(-1) }
                 .keyboardShortcut("-")
                 .disabled(fontSize == .small)
+            Button(library.showInspector ? "Hide Inspector" : "Show Inspector") { library.showInspector.toggle() }
+                .keyboardShortcut("i")
             Button("Focus Book List") {
                 gridMode = false
                 library.focusListRequest += 1
