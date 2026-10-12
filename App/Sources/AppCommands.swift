@@ -103,9 +103,9 @@ private struct ControlsCommands: Commands {
             Button("Full Library Sync") { sync("Full sync") }
                 .disabled(session.account == nil || library.isSyncing)
             Divider()
-            Button("Download All From Audible") { library.downloads.enqueue(library.books) }
+            Button("Download All From Audible…") { library.downloadAll() }
                 .disabled(session.account == nil || library.downloadableCount == 0)
-            Button("Convert All to M4B") { library.convertAll() }
+            Button("Convert All to M4B…") { library.convertAll() }
                 .disabled(session.account == nil || library.convertibleCount == 0 || library.conversion.isRunning)
             Divider()
             Button("Refresh Files") { library.refreshFiles() }

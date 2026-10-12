@@ -91,13 +91,9 @@ final class LibraryModel {
     private func recountLibraryWideJobs() {
         let owned = Set(audibleBooks.map(\.asin))
         downloadableCount = LibraryJobs.downloadable(books, owned: owned).count
-        convertibleCount = convertibleBooks(owned: owned).count
-    }
-
-    /// Convertible books whose AAX also resolves inside the library folder.
-    private func convertibleBooks(owned: Set<String>) -> [Book] {
-        guard let folder = library else { return [] }
-        return LibraryJobs.convertible(books, owned: owned).filter { folder.aaxURL(for: $0) != nil }
+        // No path resolution here: this runs on every merge, including after each conversion, and the
+        // folder is often on an external disk. `convertAll()` checks the files when it builds its run.
+        convertibleCount = library == nil ? 0 : LibraryJobs.convertible(books, owned: owned).count
     }
 
     /// Signed out, the app shows only the OpenAudible folder, as before sign-in existed.
@@ -161,14 +157,48 @@ final class LibraryModel {
         } else { conversion.prepare(book) }
     }
 
+    /// Controls ▸ Download All From Audible and the Downloads sheet's Download Missing Books: queues
+    /// every book of this account with no local file, after asking, since the queue persists and
+    /// resumes after relaunch.
+    func downloadAll() {
+        let books = LibraryJobs.downloadable(books, owned: Set(audibleBooks.map(\.asin)))
+        guard !books.isEmpty, confirm("Download \(books.count) \(books.count == 1 ? "book" : "books") from Audible?",
+                                      "They are added to the download queue and converted to M4B one after another.",
+                                      button: "Download") else { return }
+        downloads.enqueue(books)
+    }
+
     /// Controls ▸ Convert All to M4B: converts every local AAX this account can activate, one after
     /// another. Books whose activation bytes would have to be typed are left out, so the run never
-    /// stops waiting for input, and a failure or a cancel stops the rest.
+    /// stops waiting for input, and a failure or a cancel stops the rest. Books whose AAX is missing
+    /// on disk or whose M4B already exists in books/Earmark are skipped up front.
     func convertAll() {
-        guard let session, session.account != nil, !conversion.isRunning else { return }
-        conversionBatch = convertibleBooks(owned: Set(audibleBooks.map(\.asin)))
+        guard let session, session.account != nil, !conversion.isRunning, let folder = library else { return }
+        let manager = FileManager.default
+        let books = LibraryJobs.convertible(books, owned: Set(audibleBooks.map(\.asin))).filter { book in
+            guard let input = folder.aaxURL(for: book), manager.isReadableFile(atPath: input.path),
+                  let output = folder.conversionOutput(for: book) else { return false }
+            return !manager.fileExists(atPath: output.path)
+        }
+        guard !books.isEmpty else {
+            NSAlert(error: AudibleError("Nothing to convert. Every AAX file is missing on disk or already has an M4B in books/Earmark.")).runModal()
+            return
+        }
+        guard confirm("Convert \(books.count) \(books.count == 1 ? "book" : "books") to M4B?",
+                      "The conversion window stays open until the last book is done. Cancel stops the rest.",
+                      button: "Convert") else { return }
+        conversionBatch = books
         AppLog.shared.info("Convert All to M4B: \(conversionBatch.count) book(s)")
         convertNext()
+    }
+
+    private func confirm(_ message: String, _ information: String, button: String) -> Bool {
+        let alert = NSAlert()
+        alert.messageText = message
+        alert.informativeText = information
+        alert.addButton(withTitle: button)
+        alert.addButton(withTitle: "Cancel")
+        return alert.runModal() == .alertFirstButtonReturn
     }
 
     private func convertNext() {

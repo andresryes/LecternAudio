@@ -13,12 +13,12 @@ private let mp3 = BookFile(path: "books/a.mp3", type: .mp3)
 private let aax = BookFile(path: "books/a.aax", type: .aax)
 private let pdf = BookFile(path: "books/a.pdf", type: .pdf)
 
-@Test func downloadableNeedsOwnershipAndNoAudio() {
+@Test func downloadableNeedsOwnershipAndNoLocalFile() {
     let books = [book("B01"), book("B02", files: [m4b]), book("B03", files: [aax]),
                  book("B04"), book("B05", files: [pdf])]
     let owned: Set<String> = ["B01", "B02", "B03", "B05"]
-    // B02 already has audio; B04 is not in the account's catalog.
-    #expect(LibraryJobs.downloadable(books, owned: owned).map(\.asin) == ["B01", "B03", "B05"])
+    // B02 already has audio; B03 has an AAX waiting to be converted; B04 is not in the account's catalog.
+    #expect(LibraryJobs.downloadable(books, owned: owned).map(\.asin) == ["B01", "B05"])
 }
 
 @Test func downloadableTreatsMP3AsAudio() {
