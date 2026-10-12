@@ -108,6 +108,11 @@ final class ConversionModel {
                     try? FileManager.default.removeItem(at: converted)
                     throw error
                 }
+                // The owner's own AAX, so this is off unless they asked for it, and only ever once
+                // `recordConversion` has registered the M4B that replaces it.
+                if UserDefaults.standard.bool(forKey: Prefs.deleteAAXAfterConversion) {
+                    try? FileManager.default.removeItem(at: input)
+                }
                 if libraryModel.library?.root == library.root { libraryModel.reload() }
                 progress = 1
                 succeeded = true

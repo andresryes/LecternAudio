@@ -3,12 +3,15 @@ import SwiftUI
 struct ConversionView: View {
     @Bindable var conversion: ConversionModel
     let library: LibraryModel
+    @AppStorage(Prefs.deleteAAXAfterConversion) private var deleteAAX = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             Text("Convert to M4B").font(.title2.bold())
             Text(conversion.book?.title ?? "").font(.headline)
-            Text("Keep the original audio quality, chapters and cover. Your AAX file is kept.")
+            Text(deleteAAX
+                 ? "Keep the original audio quality, chapters and cover. Your AAX file is deleted once the M4B is saved."
+                 : "Keep the original audio quality, chapters and cover. Your AAX file is kept.")
                 .foregroundStyle(.secondary)
             if !conversion.isRunning && !conversion.succeeded && !conversion.usesAccountKey {
                 SecureField("Activation bytes (8 hexadecimal characters)", text: $conversion.activationBytes)
