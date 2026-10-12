@@ -26,6 +26,7 @@ final class ConversionModel {
 
     func prepare(_ book: Book) {
         guard !isRunning else { return }
+        onFinish = nil
         self.book = book
         usesAccountKey = false
         activationBytes = ""
@@ -67,10 +68,17 @@ final class ConversionModel {
     }
 
     func start(libraryModel: LibraryModel) {
-        guard !isRunning, let book, let library = libraryModel.library,
-              let input = library.aaxURL(for: book), let output = library.conversionOutput(for: book) else { return }
+        guard !isRunning else { return }
+        // Every other early return reports to a Convert All run, so it stops instead of staying armed
+        // for the next manual conversion.
+        guard let book, let library = libraryModel.library,
+              let input = library.aaxURL(for: book), let output = library.conversionOutput(for: book) else {
+            onFinish?(false)
+            return
+        }
         guard let ffmpegURL else {
             message = "The bundled conversion tool is missing. Rebuild or reinstall Lectern Audio."
+            onFinish?(false)
             return
         }
         let key: ActivationBytes
@@ -82,6 +90,7 @@ final class ConversionModel {
             }
         } catch {
             message = error.localizedDescription
+            onFinish?(false)
             return
         }
         activationBytes = ""

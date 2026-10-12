@@ -35,7 +35,9 @@ jobs:
           path: Packages/AudibleCore/.build
           key: spm-linux-swift6.1-${{ hashFiles('Packages/AudibleCore/Package.resolved') }}
           restore-keys: spm-linux-swift6.1-
-      - run: swift test --package-path Packages/AudibleCore --disable-index-store
+      # No --disable-index-store here: on Linux, swift test finds tests through the index store, and a cached
+      # .build without units for a new test file fails with "Failed opening .../index/store/v5/units/...".
+      - run: swift test --package-path Packages/AudibleCore
   # Tests and the app build run on separate runners in parallel (standard runners are free on public repos).
   macos-test:
     needs: changes
@@ -67,8 +69,6 @@ jobs:
       - run: brew install xcodegen
       - run: xcodegen generate
       - run: |
-          universal=()
-          if [ "$GITHUB_EVENT_NAME" = push ]; then universal=("ARCHS=arm64 x86_64" ONLY_ACTIVE_ARCH=NO); fi
           xcodebuild -scheme LecternAudio -destination platform=macOS -derivedDataPath build -showBuildTimingSummary build \
-            CODE_SIGNING_ALLOWED=NO COMPILER_INDEX_STORE_ENABLE=NO "${universal[@]}" | tail -80
+            CODE_SIGNING_ALLOWED=NO COMPILER_INDEX_STORE_ENABLE=NO | tail -80
         shell: bash -o pipefail {0}
