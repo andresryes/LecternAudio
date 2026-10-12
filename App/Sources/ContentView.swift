@@ -13,6 +13,7 @@ struct ContentView: View {
     @AppStorage(Prefs.autoSyncHours) private var autoSyncHours = 24
     @AppStorage(Prefs.showProgress) private var showProgress = false
     @AppStorage(Prefs.appearance) private var appearance = "system"
+    @FocusState private var searchFocused: Bool
 
     var body: some View {
         let _ = BodyCount.tick("ContentView")
@@ -49,6 +50,9 @@ struct ContentView: View {
             .inspectorColumnWidth(min: 280, ideal: 340, max: 460)
         }
         .searchable(text: $model.search, prompt: "Title, author, narrator")
+        .searchFocused($searchFocused)
+        // Changes only when ⌘F is pressed, so the extra observation costs one body evaluation.
+        .onChange(of: model.focusSearchRequest) { searchFocused = true }
         .toolbar {
             ToolbarItem {
                 Button("Downloads", systemImage: "arrow.down.circle") { showDownloads = true }
@@ -92,8 +96,8 @@ struct ContentView: View {
             }
         }
         .task(id: autoSyncID) { await autoSyncLoop() }
-        .onChange(of: model.downloads.activeID) { old, new in
-            if showProgress, old == nil, new != nil { showDownloads = true }
+        .onChange(of: model.downloads.activeCount) { old, new in
+            if showProgress, old == 0, new > 0 { showDownloads = true }
         }
         .onChange(of: appearance, initial: true) { _, new in applyAppearance(new) }
         .sheet(isPresented: $showDownloads) { DownloadsView(downloads: model.downloads, library: model) }

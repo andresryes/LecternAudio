@@ -120,10 +120,13 @@ final class ConversionModel {
             var outcome = Outcome.failed
             defer { isRunning = false; task = nil; onFinish?(outcome) }
             do {
-                let converted = try await converter.convert(request, activationBytes: key, ffmpeg: ffmpegURL) { [weak self] value in
-                    Task { @MainActor in
-                        guard let self, self.isRunning else { return }
-                        self.progress = max(self.progress, value)
+                // Shares the limit with the download queue's conversions (Settings, Simultaneous conversions).
+                let converted = try await Prefs.conversions.run { [converter] in
+                    try await converter.convert(request, activationBytes: key, ffmpeg: ffmpegURL) { [weak self] value in
+                        Task { @MainActor in
+                            guard let self, self.isRunning else { return }
+                            self.progress = max(self.progress, value)
+                        }
                     }
                 }
                 do { try library.recordConversion(for: book, output: converted) }
