@@ -16,11 +16,11 @@ Run all of these before pushing:
 swift test --package-path Packages/AudibleCore
 xcodegen generate                      # project.yml is the source of truth; LecternAudio.xcodeproj is generated and git-ignored
 xcodebuild -scheme LecternAudio -destination platform=macOS -derivedDataPath build build
-xcodebuild -scheme LecternAudio -destination platform=macOS -derivedDataPath build test   # main window snapshots; references are the CI runner's, so CI is the gate
+xcodebuild -scheme LecternAudio -destination platform=macOS -derivedDataPath build test   # main window snapshots (local only, not run in CI)
 ```
-- Snapshot references live in `App/Tests/__Snapshots__` and come from the macos-26 CI runner, whose
-  Xcode renders differently from a local one (to re-record there, delete the PNGs and push; see ci.yml). Locally,
-  `TEST_RUNNER_LECTERN_RECORD_SNAPSHOTS=1 xcodebuild … test` records; look at the new PNGs before committing them: in
+- Snapshot references live in `App/Tests/__Snapshots__`, recorded on a developer Mac (Xcode 27.1, 2x). They
+  are not run in CI: the hosted runner draws the glass sidebar and inspector blank. Record with
+  `TEST_RUNNER_LECTERN_RECORD_SNAPSHOTS=1 xcodebuild … test` and look at the new PNGs before committing them: in
   record mode the run always reports an issue and ends red, which is expected. The test host shares the
   app's defaults domain, so the tests use `LibraryModel(restoring: false)`, `open(_:remember:)` and
   `AudibleSession(loadKeychain: false)` and put back anything they change; never let a test write the

@@ -5,8 +5,8 @@ import Testing
 @testable import LecternAudio
 
 /// Snapshots of the main window's states (issue #7). References are PNGs beside this file in
-/// `__Snapshots__`, recorded on the CI runner (see ci.yml); `TEST_RUNNER_LECTERN_RECORD_SNAPSHOTS=1` on the
-/// xcodebuild command line records new ones.
+/// `__Snapshots__`, recorded on a developer Mac and not run in CI (the runner draws the glass panels blank);
+/// `TEST_RUNNER_LECTERN_RECORD_SNAPSHOTS=1` on the xcodebuild command line records new ones.
 ///
 /// These run in the host app's own defaults domain, so every test puts back what it changes: a test
 /// run must not leave the owner's library folder or view mode different from how they left it.

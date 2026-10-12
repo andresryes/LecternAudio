@@ -74,7 +74,10 @@ targets:
   LecternAudioTests:
     type: bundle.unit-test
     platform: macOS
-    sources: [App/Tests]
+    sources:
+      # The references are read from the source tree, not copied into the bundle.
+      - path: App/Tests
+        excludes: ["__Snapshots__"]
     dependencies:
       - target: LecternAudio
       - package: SnapshotTesting
