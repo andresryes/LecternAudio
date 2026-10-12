@@ -206,6 +206,11 @@ final class LibraryModel {
         guard automatic || confirm("Convert \(books.count) \(books.count == 1 ? "book" : "books") to M4B?",
                       "The conversion window stays open until the last book is done. Cancel stops the rest.",
                       button: "Convert") else { return }
+        // A sync may have started an automatic run while the alert was open.
+        guard !conversion.isRunning else {
+            AppLog.shared.info("Convert All to M4B: an automatic conversion started first; choose it again when it is done")
+            return
+        }
         conversionBatch = books
         automaticBatch = automatic
         AppLog.shared.info("\(automatic ? "Automatic conversion" : "Convert All to M4B"): \(conversionBatch.count) book(s)")
