@@ -16,7 +16,13 @@ Run all of these before pushing:
 swift test --package-path Packages/AudibleCore
 xcodegen generate                      # project.yml is the source of truth; LecternAudio.xcodeproj is generated and git-ignored
 xcodebuild -scheme LecternAudio -destination platform=macOS -derivedDataPath build build
+xcodebuild -scheme LecternAudio -destination platform=macOS -derivedDataPath build test   # main window snapshots
 ```
+- Snapshot references live in `App/Tests/__Snapshots__`. Re-record them with
+  `LECTERN_RECORD_SNAPSHOTS=1 xcodebuild … test`, and look at the new PNGs before committing them: in
+  record mode the run always reports an issue and ends red, which is expected. The test host shares the
+  app's defaults domain, so the tests use `LibraryModel(restoring:)` and `open(_:remember:)` and put
+  back anything they change; never let a test write the library bookmark.
 - One test: `swift test --package-path Packages/AudibleCore --filter <testFunctionName>` (Swift Testing `@Test` functions).
 - The first app build compiles FFmpeg 8.0 and aria2 1.37.0 from checksum-pinned tarballs (`scripts/build-ffmpeg.sh`, `scripts/build-aria2.sh`, run as post-build scripts) and caches them under `build/`.
 - Release locally: `scripts/release.sh <version> <build>` builds a universal app, signs it ad-hoc inside out, makes the DMG and ZIP, and writes `appcast.xml` signed with the Sparkle EdDSA key (from `SPARKLE_PRIVATE_KEY` or the login Keychain). CI does the same on `v*` tags (`.github/workflows/release.yml`).

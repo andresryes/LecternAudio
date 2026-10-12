@@ -44,6 +44,43 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: swift test --package-path Packages/AudibleCore --disable-index-store
+  # Snapshots of the main window (issue #7). The reference images in the repository were recorded on a
+  # developer machine, not on this runner, so a mismatch must not block the merge queue: re-record them
+  # here (run the job with LECTERN_RECORD_SNAPSHOTS=1, download the artifact, commit it) and then drop
+  # `continue-on-error`.
+  macos-snapshots:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: macos-26
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: |
+            build/ffmpeg-8.0
+            build/aria2-1.37.0
+          key: helpers-macOS-${{ hashFiles('scripts/build-ffmpeg.sh', 'scripts/build-aria2.sh') }}
+      - uses: actions/cache@v4
+        with:
+          path: build/SourcePackages
+          key: spm-xcode-${{ hashFiles('project.yml', 'Packages/AudibleCore/Package.resolved') }}
+          restore-keys: spm-xcode-
+      - run: brew install xcodegen
+      - run: xcodegen generate
+      - run: |
+          xcodebuild -scheme LecternAudio -destination platform=macOS -derivedDataPath build test \
+            CODE_SIGNING_ALLOWED=NO COMPILER_INDEX_STORE_ENABLE=NO | tail -60
+        shell: bash -o pipefail {0}
+      # The failure diff is written beside the reference as `<name>.png` plus the xcresult attachments.
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: snapshot-diffs
+          path: |
+            App/Tests/__Snapshots__
+            build/Logs/Test
+          if-no-files-found: ignore
   macos-build:
     needs: changes
     if: needs.changes.outputs.code == 'true'
